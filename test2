@@ -1,0 +1,135 @@
+#cloud-config
+autoinstall:
+  version: 1
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+  timezone: UTC
+
+  identity:
+    hostname: ubuntu-22
+    username: whale
+    password: $6$exDY1mhS4KUYCE/2$zmn9ToZwTKLhCw.b4/b.ZRTIZM30JZ4QrOQ2aOXJ8yk96xpcCof0kxKwuX1kqLG/ygbJ1f8wxED22bTL4F46P0
+
+  apt:
+    primary:
+      - arches: [default]
+        uri: http://mirror.csclub.uwaterloo.ca:80/ubuntu
+    proxy: http://172.16.140.159:3142/
+
+  storage:
+    config:
+      # SYSTEM DISK: first detected
+      - type: disk
+        id: system-disk
+        ptable: gpt
+        wipe: superblock-recursive
+
+      # BOOT partition
+      - type: partition
+        device: system-disk
+        size: 512M
+        flag: boot
+        id: boot-part
+
+      - type: format
+        volume: boot-part
+        fstype: ext4
+        label: boot
+
+      - type: mount
+        device: boot-part
+        path: /boot
+
+      # SYSTEM LVM on first disk
+      - type: lvm_volgroup
+        id: vg_system
+        devices: [system-disk]
+
+      - type: lvm_partition
+        id: lv_root
+        volgroup: vg_system
+        size: 100%FREE
+
+      - type: format
+        volume: lv_root
+        fstype: ext4
+
+      - type: mount
+        device: lv_root
+        path: /
+
+      # LOG DISK: specifically the one that is ~10G
+      - type: disk
+        id: log-disk
+        match:
+          size: 10G
+        ptable: gpt
+        wipe: superblock-recursive
+
+      - type: lvm_volgroup
+        id: vg_log
+        devices: [log-disk]
+
+      - type: lvm_partition
+        id: lv_log
+        volgroup: vg_log
+        size: 100%FREE
+
+      - type: format
+        volume: lv_log
+        fstype: ext4
+
+      - type: mount
+        device: lv_log
+        path: /var/log
+
+  late-commands:
+    # Search domain
+    - echo "search x.com" >> /etc/resolv.conf
+
+    # Create auto-ansible user and SSH key
+    - groupadd -g 403 auto-ansible
+    - useradd -g auto-ansible -u 403 -d /home/auto-ansible auto-ansible
+    - mkdir -p /home/auto-ansible/.ssh && chmod -R 700 /home/auto-ansible
+    - echo "ssh-rsa AAA57pF4zS3EQRLhCYuaYqxKxGS2COgX/LzgzK9vMOVCcra7RDtG25Hiu3m2K7EL0ywiN8nvUnJ3IGEg6EZz/MIRIKhen3+tmeUnsw5hZPKgwcLmjd auto-ansible" > /home/auto-ansible/.ssh/authorized_keys
+    - chmod 600 /home/auto-ansible/.ssh/authorized_keys
+    - chown -R auto-ansible:auto-ansible /home/auto-ansible
+
+    # NOPASSWD sudo for auto-ansible
+    - echo "Defaults:auto-ansible !requiretty" > /etc/sudoers.d/auto-ansible
+    - echo "auto-ansible ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/auto-ansible
+    - chmod 600 /etc/sudoers.d/auto-ansible
+
+    # Apt proxy config
+    - echo "Acquire::http::Proxy \"http://172.16.140.159:3142\";" > /etc/apt/apt.conf.d/00aptproxy
+
+    # SSH: Disable UseDNS to speed up login
+    - echo "UseDNS no" >> /etc/ssh/sshd_config
+
+    # Custom ansible fact
+    - mkdir -p /etc/ansible/facts.d
+    - echo -e "[datacenter]\nname=London Ontario HQ\nid=london" > /etc/ansible/facts.d/location.fact
+
+    # Docker daemon config
+    - echo -e "{\n  \"bip\": \"10.68.0.1/16\",\n  \"live-restore\": true\n}" > /etc/docker/daemon.json
+
+    # Fetch and run interactive network script
+    - wget --no-proxy -O /usr/local/bin/network.ks http://172.16.140.159/cfg/modules/network-interactive-config-ubuntu22.ks
+    - chmod +x /usr/local/bin/network.ks
+    - /usr/local/bin/network.ks
+
+packages:
+  - lsb-release
+  - openssh-server
+  - screen
+  - sysstat
+  - wget
+  - ldap-utils
+  - gawk
+  - net-tools
+  - python3
+  - firewalld
+  - dnsutils
+  - docker.io
+  - open-vm-tools
