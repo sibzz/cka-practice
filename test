@@ -1,0 +1,153 @@
+
+# PRE CONFIGURATION (everything between the lines is one big command)
+################################################################################
+d-i preseed/early_command string \
+# Insert domains to search into the installers resolv.conf
+  echo "search x.com" >> /etc/resolv.conf
+
+################################################################################
+
+# LOCALIZATION:
+d-i debian-installer/locale string en
+d-i debian-installer/country string US
+d-i debian-installer/locale string en_US.UTF-8
+d-i debian-installer/language string en
+
+# KEYBOARD
+d-i console-tools/archs select at
+d-i console-keymaps-at/keymap select American English
+d-i debian-installer/keymap string us
+
+# MIRROR SETTINGS
+d-i mirror/http/proxy string http://172.16.140.159:3142/
+d-i mirror/country string manual
+d-i mirror/http/hostname string mirror.csclub.uwaterloo.ca:80
+d-i mirror/http/directory string /ubuntu
+d-i mirror/codename string bionic
+d-i mirror/suite string bionic
+d-i mirror/udeb/suite string bionic
+
+# TIME SETTINGS
+d-i clock-setup/utc boolean true
+d-i time/zone string UTC
+d-i clock-setup/ntp boolean true
+d-i clock-setup/ntp-server string 0.centos.pool.ntp.org iburst
+
+# NETWORKING
+d-i netcfg/dhcp_timeout string 300
+d-i netcfg/get_hostname string unassigned-hostname
+d-i netcfg/get_domain string unassigned-domain
+d-i netcfg/disable_dhcp boolean false
+d-i netcfg/dhcp_failed note
+
+# CREATE WHALE USER ACCOUNT
+d-i passwd/root-login boolean false
+d-i passwd/user-fullname string Ubuntu Superuser
+d-i passwd/username string whale
+d-i passwd/user-password-crypted password $6$exDY1mhS4KUYCE/2$zmn9ToZwTKLhCw.b4/b.ZRTIZM30JZ4QrOQ2aOXJ8yk96xpcCof0kxKwuX1kqLG/ygbJ1f8wxED22bTL4F46P0
+
+# DISK PARTITIONING
+d-i partman-auto/disk string /dev/sda /dev/sdb
+d-i partman-auto/method string lvm
+d-i partman-auto-lvm/guided_size string max
+d-i partman-lvm/device_remove_lvm boolean true
+d-i partman-md/device_remove_md boolean true
+d-i partman-lvm/confirm boolean true
+d-i partman-lvm/confirm_nooverwrite boolean true
+d-i partman-auto/expert_recipe string                         \
+      Partitioning ::                                         \
+              536 50 536 ext2                                 \
+                      $defaultignore{ }                       \
+                      $primary{ } $bootable{ }                \
+                      method{ format } format{ }              \
+                      use_filesystem{ } filesystem{ ext2 }    \
+                      mountpoint{ /boot }                     \
+              .                                               \
+              1024 1 10000000 xfs                             \
+                      method{ lvm }                           \
+                      device{ /dev/sda }                      \
+                      vg_name{ VG1 }                          \
+              .                                               \
+              1024 1 10000000 xfs                             \
+                      method{ lvm }                           \
+                      device{ /dev/sdb }                      \
+                      vg_name{ VG2 }                          \
+              .                                               \
+              5120 100 5120 xfs                               \
+                      $defaultignore{ }                       \
+                      $lvmok{ }                               \
+                      lv_name{ varlib } in_vg{ VG1 }          \
+                      method{ lvm } format{ }                 \
+                      use_filesystem{ } filesystem{ xfs  }    \
+                      mountpoint{ /var/lib }                  \
+              .                                               \
+              10240 100 10000000 xfs                          \
+                      $defaultignore{ }                       \
+                      $lvmok{ }                               \
+                      lv_name{ rootlv } in_vg{ VG1 }          \
+                      method{ lvm } format{ }                 \
+                      use_filesystem{ } filesystem{ xfs  }    \
+                      mountpoint{ / }                         \
+              .                                               \
+              5120 100 10000000 xfs                           \
+                      $defaultignore{ }                       \
+                      $lvmok{ }                               \
+                      lv_name{ logslv } in_vg{ VG2 }          \
+                      method{ lvm } format{ }                 \
+                      use_filesystem{ } filesystem{ xfs  }    \
+                      mountpoint{ /var/log }                  \
+              .                                               \
+d-i partman-partitioning/confirm_write_new_label boolean true
+d-i partman/choose_partition select finish
+d-i partman/confirm boolean true
+d-i partman/confirm_nooverwrite boolean true
+
+# GRUB SETUP
+# Can't get a grub password to work yet
+d-i grub-installer/bootdev  string /dev/sda
+d-i grub-installer/only_debian boolean false
+d-i grub-installer/with_other_os boolean false
+
+# PACKAGES AND UPDATES
+d-i pkgsel/upgrade select none
+d-i pkgsel/update-policy select none
+d-i pkgsel/updatedb boolean true
+d-i base-installer/kernel/override-image string linux-server
+tasksel tasksel/first multiselect ubuntu-server
+d-i pkgsel/include string lsb-release openssh-server screen sysstat wget ldap-utils gawk net-tools python firewalld dnsutils docker.io open-vm-tools
+
+# POST CONFIGURATION (everything between the lines is one big command)
+################################################################################
+# Install the auto-ansible user and SSH key
+d-i preseed/late_command string \
+  in-target groupadd -g 403 auto-ansible; \
+  in-target useradd -g auto-ansible -u 403 -d /home/auto-ansible auto-ansible; \
+  mkdir -p /target/home/auto-ansible/.ssh && chmod -R 700 /target/home/auto-ansible; \
+  echo "ssh-rsa AAA57pF4zS3EQRLhCYuaYqxKxGS2COgX/LzgzK9vMOVCcra7RDtG25Hiu3m2K7EL0ywiN8nvUnJ3IGEg6EZz/MIRIKhen3+tmeUnsw5hZPKgwcLmjd auto-ansible" > /target/home/auto-ansible/.ssh/authorized_keys; \
+  in-target chmod 600 /home/auto-ansible/.ssh/authorized_keys; \
+  in-target chown -R auto-ansible:auto-ansible /home/auto-ansible; \
+
+# Nopasswd sudo for auto-ansible
+  echo "Defaults:auto-ansible           !requiretty" > /target/etc/sudoers.d/auto-ansible; \
+  echo "auto-ansible    ALL=(ALL)       NOPASSWD:ALL" >> /target/etc/sudoers.d/auto-ansible; \
+  chmod 600 /target/etc/sudoers.d/auto-ansible; \
+
+# Create the apt-proxy config file
+  echo "Acquire::http::Proxy \"http://172.16.140.159:3142\";" > /target/etc/apt/apt.conf.d/00aptproxy; \
+
+# Ensure SSH isn't slow if reverse DNS isn't working
+  echo "UseDNS no" >> /target/etc/ssh/sshd_config; \
+
+# Ansible fact for future use
+  mkdir -p /target/etc/ansible/facts.d; \
+  echo -e "[datacenter]\nname=London Ontario HQ\nid=london" > /target/etc/ansible/facts.d/location.fact; \
+
+# Change bridge IP so it doesn't conflict with DMZ
+  echo -e "{\n  \"bip\": \"10.68.0.1/16\",\n  \"live-restore\": true\n}" > /target/etc/docker/daemon.json; \
+
+# Run the interactive network script
+  wget --no-proxy -O /target/usr/local/bin/network.ks http://172.16.140.159/cfg/modules/network-interactive-config-ubuntu18.ks; \
+  in-target chmod +x /usr/local/bin/network.ks; \
+  in-target /usr/local/bin/network.ks;
+
+################################################################################
